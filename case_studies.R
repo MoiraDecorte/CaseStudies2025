@@ -5,11 +5,12 @@ library(psych)
 library(GGally)
 library(ggplot2)
 library(gridExtra)
+library(corrplot)
+library(EGAnet)
 
-#Data inlezen
 data_raw <- read_csv(
   "C:/Users/moira/Downloads/COVIDiSTRESS global survey May 30 2020 (___final cleaned file___)/COVIDiSTRESS global survey May 30 2020 (___final cleaned file___).csv",
-  locale = locale(encoding = "UTF-8"), 
+  locale = locale(encoding = "ISO-8859-1"),  # alternatief voor special characters
   na = c("NA", "")
 )
 
@@ -25,15 +26,43 @@ data_clean <- spaces_to_underscores(data_raw)
 likert_items <- grep("^(Scale_PSS10_UCLA_|Corona_concerns_|Compliance_|BFF_15_|Expl_Distress_|SPS_|Expl_Coping_|Expl_media_)", 
                      names(data_clean), value = TRUE)
 
-efa_data <- data_clean[, likert_items]
+oecd_items <- grep("^(OECD_people_|OECD_insititutions_)", names(data_clean), value = TRUE)
 
-#'7 = niet van toepassing' omzetten naar NA
-efa_data[efa_data == 7] <- NA
+# ✅ Voeg Trust_countrymeasure expliciet toe
+extra_items <- c("Trust_countrymeasure")
+
+all_items <- c(likert_items, oecd_items, extra_items)
+
+efa_data <- data_clean[, all_items]
+
+distress_vars <- grep("^Expl_Distress_", names(efa_data), value = TRUE)
+
+efa_data[distress_vars] <- lapply(efa_data[distress_vars], function(x) {
+  x[x == 7] <- NA
+  return(x)
+})
+
+efa_data[efa_data == 99] <- NA
+
+# 🧮 Alles numeriek maken
+efa_data[] <- lapply(efa_data, function(x) as.numeric(as.character(x)))
+
+# ⚖️ STANDAARDISEREN: zet alles op z-score
+efa_data_scaled <- as.data.frame(scale(efa_data))
+
+non_numeric_check <- sapply(efa_data, function(x) {
+  any(!grepl("^[0-9\\.]+$", na.omit(as.character(x))))
+})
+names(efa_data)[non_numeric_check]
+na_inducing_values <- lapply(efa_data, function(x) {
+  unique(x[is.na(suppressWarnings(as.numeric(as.character(x)))) & !is.na(x)])
+})
+na_inducing_values <- Filter(length, na_inducing_values)
+print(na_inducing_values)
+
 
 #Verwijder variabelen zonder voldoende correlatie
 remove_uncorrelated_vars <- function(df, threshold = 0.3) {
-  numeric_cols <- sapply(df, is.numeric)
-  df <- df[, numeric_cols]
   cor_matrix <- cor(df, use = "pairwise.complete.obs")
   has_correlations <- sapply(1:ncol(cor_matrix), function(i) {
     any(abs(cor_matrix[i, -i]) >= threshold)
@@ -41,13 +70,22 @@ remove_uncorrelated_vars <- function(df, threshold = 0.3) {
   df_filtered <- df[, has_correlations]
   return(df_filtered)
 }
+efa_data_filtered <- remove_uncorrelated_vars(efa_data_scaled, threshold = 0.3)
 
-efa_data_filtered <- remove_uncorrelated_vars(efa_data, threshold = 0.3)
 
-#Visualiseer correlaties
-ggplotMatrix <- function(efa_data, bin_width = 0.5, axis_range = c(1, 6)) {
+# 📊 Flexibele correlatiematrixvisualisatie (detecteert of z-scores of ruwe Likert-data)
+ggplotMatrix <- function(efa_data, bin_width = 0.5) {
+  # Slimme detectie van schaalbereik
+  data_range <- range(efa_data, na.rm = TRUE)
+  if (data_range[2] > 6) {
+    axis_range <- c(0, 10)  # voor brede schalen
+  } else if (data_range[1] < 0) {
+    axis_range <- c(-3, 3)  # voor gestandaardiseerde data
+  } else {
+    axis_range <- c(1, 6)   # klassieke Likert
+  }
   my_bins <- seq(axis_range[1], axis_range[2], bin_width)
-  axis_breaks <- axis_range[1]:axis_range[2]
+  axis_breaks <- floor(axis_range[1]):ceiling(axis_range[2])
   
   my_heatmap <- function(data, mapping, ...) {
     ggplot(data = data, mapping = mapping) +
@@ -90,42 +128,88 @@ ggplotMatrix <- function(efa_data, bin_width = 0.5, axis_range = c(1, 6)) {
     theme_bw()
 }
 
-
+# 🔍 Correlatiematrix voor efa_data_filtered
 cor_matrix <- cor(efa_data_filtered, use = "pairwise.complete.obs")
 heatmap(cor_matrix)
 
+# 🎨 Mooie correlatieplot
 library(corrplot)
 corrplot(cor_matrix, method = "color", tl.cex = 0.5)
-removed_vars <- setdiff(names(efa_data), names(efa_data_filtered))
-removed_vars
-efa_numeric <- efa_data[, sapply(efa_data, is.numeric)]
-cor_matrix <- cor(efa_numeric, use = "pairwise.complete.obs")
 
-removed_vars_numeric <- intersect(removed_vars, colnames(efa_numeric))
+# 🧹 Overzicht van verwijderde variabelen (te lage correlaties)
+removed_vars <- setdiff(names(efa_data_scaled), names(efa_data_filtered))
+
+# Toon waarom ze zijn verwijderd
+removed_vars_numeric <- intersect(removed_vars, colnames(efa_data_scaled))
+cor_matrix_all <- cor(efa_data_scaled, use = "pairwise.complete.obs")
 
 cor_details <- data.frame(
   variable = removed_vars_numeric,
   max_correlation = sapply(removed_vars_numeric, function(var) {
-    max(abs(cor_matrix[var, setdiff(colnames(cor_matrix), var)]), na.rm = TRUE)
+    max(abs(cor_matrix_all[var, setdiff(colnames(cor_matrix_all), var)]), na.rm = TRUE)
   })
 )
 
-# Sorteer oplopend om te zien welke écht zwak waren
+# Sorteer en toon de zwakst gecorreleerde eerst
 cor_details <- cor_details[order(cor_details$max_correlation), ]
 print(cor_details)
 
+# 🖼️ Matrixplot (ruwe of gestandaardiseerde data kan)
+#ggplotMatrix(efa_data_filtered)
 
-
-#Parallel analysis → aantal factoren bepalen
-fa.parallel(efa_data_filtered, fa = "fa")
+  
+  #Parallel analysis → aantal factoren bepalen
+  fa.parallel(efa_data_filtered, fa = "fa")
 
 # EFA uitvoeren met gekozen aantal factoren (bv. 4)
-fa_result <- fa(efa_data_filtered, nfactors = 20, rotate = "oblimin")
+fa_result <- fa(efa_data_filtered, nfactors = 25, rotate = "oblimin")
 print(fa_result, cutoff = 0.3)
 fa.diagram(fa_result, cut = 0.295, main = "Factor Analysis")
 
-
+library(qgraph)
 library(EGAnet)
-ega_result <- EGA(data = efa_data_filtered, model = "glasso", plot.EGA = TRUE)
-efa_data_filtered[efa_data_filtered == 99] <- NA
+
+# Gewone correlatiematrix
+cor_matrix <- cor(efa_data_filtered, use = "pairwise.complete.obs")
+
+# Plot netwerk gebaseerd op gewone correlaties
+qgraph(cor_matrix, layout = "spring", labels = colnames(cor_matrix),
+       title = "Pairwise correlation network", edge.color = "darkblue")
+
+# Gebruik EGAnet om glasso netwerk op te bouwen
+ega_network <- EGA(data = efa_data_filtered, model = "glasso", plot.EGA = FALSE)
+
+# Extraheer netwerkmatrix
+glasso_matrix <- ega_network$network
+
+# Plot netwerk op basis van partiële correlaties
+qgraph(glasso_matrix, layout = "spring", labels = colnames(glasso_matrix),
+       title = "Regularized partial correlation network", edge.color = "darkred")
+
+# 1. Count non-zero edges (off-diagonal)
+nz_pairwise <- sum(cor_matrix[upper.tri(cor_matrix)] != 0)
+nz_glasso   <- sum(glasso_matrix[upper.tri(glasso_matrix)] != 0)
+
+message("Non-zero edges: pairwise = ", nz_pairwise,
+        ", glasso = ", nz_glasso)
+
+# 2. Edge-weight summaries
+pw_edges  <- cor_matrix[upper.tri(cor_matrix)]
+gl_edges  <- glasso_matrix[upper.tri(glasso_matrix)]
+
+summary(pw_edges)
+summary(gl_edges)
+
+# 3. Centrality comparison
+library(qgraph)
+# compute strength centrality for each network
+cent_pw    <- centrality_auto(qgraph(cor_matrix, DoNotPlot=TRUE))$node.centrality$Strength
+cent_glass <- centrality_auto(qgraph(glasso_matrix, DoNotPlot=TRUE))$node.centrality$Strength
+
+cor(cent_pw, cent_glass, method="spearman")
+
+# 4. Adjacency similarity
+# (Spearman between flattened upper triangles)
+cor(pw_edges, gl_edges, method="spearman", use="pairwise.complete.obs")
+
 
