@@ -1,1 +1,12 @@
+This folder contains the full R scripts and data processing pipeline for analysis of the COVIDiSTRESS global survey data as described in our paper. 
+Our analysis includes multiple stages: Exploratory Factor Analysis (EFA), Network Analysis, Cluster Analysis, and Linear Models per Continent.
 
+Important notes to consider when running the scripts: 
+- File Paths: Make sure to adjust the file paths in the first script under exploratory_factor_analysis/ to match your local environment. 
+- Data Requirements: Some scripts expect output from previous steps (e.g., cluster assignments or scaled factor scores), so ensure earlier scripts are completed successfully before proceeding.
+
+This is the order one should follow: 
+1. Exploratory_Factor_Analysis.R - this script performs the EFA and saves the factor scores 
+2. Network_Analysis.R - generates the network structure of our data 
+3. Cluster_Analsyis.R - uses the factor scores to find clusters of individuals in our data 
+4. LM_per_continent.R - linear models per continent predicting trust in governmental measures using the factor scores
