@@ -175,6 +175,17 @@ for (i in 1:9) {
 
 factor_scores <- as.data.frame(fa_result$scores)
 
+# Create table with eigenvalues, % variance, and cumulative %
+explained_variance_table <- data.frame(
+  Factor = paste0("MR", 1:n_factors),
+  Eigenvalue = round(fa_result$Vaccounted["SS loadings", ], 2),
+  Percent_of_Variance = round(fa_result$Vaccounted["Proportion Var", ] * 100, 2),
+  Cumulative_Percent = round(fa_result$Vaccounted["Cumulative Var", ] * 100, 2)
+)
+
+# Print table to console
+print(explained_variance_table)                                           
+
 # Add Trust, country and SubjectID for later analysis
 factor_scores$Trust_countrymeasure <- data_efa$Trust_countrymeasure
 factor_scores$country <- data_efa$country
