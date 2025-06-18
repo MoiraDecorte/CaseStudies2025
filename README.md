@@ -1,4 +1,4 @@
-Welcome to the GitHub repository for our project Global Patterns of Psychological Coping and Institutional Trust During COVID-19. 
+Welcome to the GitHub repository for our project titled: "Global Patterns of Psychological Coping and Institutional Trust During COVID-19". 
 This repository contains all materials related to our analyses based on the publicly available COVIDiSTRESS Global Survey dataset.
 
 What you'll find in this repository
