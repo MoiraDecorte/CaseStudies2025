@@ -11,7 +11,7 @@ library(dplyr)
 
 # Make a combined dataset
 efa_pmrf_data <- efa_data_filtered %>%
-  mutate(Trust_countrymeasure = data_clean$Trust_countrymeasure)
+  mutate(Trust_countrymeasure = data_efa$Trust_countrymeasure)
 
 efa_pmrf_data$Trust_countrymeasure <- as.numeric(efa_pmrf_data$Trust_countrymeasure)
 
